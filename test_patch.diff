@@ -1,0 +1,34 @@
+[
+  {
+    "op": "create_dir",
+    "path": "a"
+  },
+  {
+    "op": "create_file",
+    "path": "a/new.txt",
+    "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "op": "modify_file",
+    "path": "b.txt"
+  },
+  {
+    "op": "delete_file",
+    "path": "old.txt"
+  },
+  {
+    "op": "chmod",
+    "path": "config.ini",
+    "mode": 420
+  },
+  {
+    "op": "utimes",
+    "path": "config.ini",
+    "mtime": 1234567890
+  },
+  {
+    "op": "symlink",
+    "path": "link",
+    "target": "target.txt"
+  }
+]
