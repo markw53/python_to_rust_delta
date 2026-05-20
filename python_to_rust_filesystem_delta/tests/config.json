@@ -70,5 +70,6 @@
     "test_integration_edge_cases.py::test_patch_stability"
   ],
   "PASS_TO_PASS": [],
+  "expected_test_count": 52,
   "golden_repo": "golden_repo"
 }
