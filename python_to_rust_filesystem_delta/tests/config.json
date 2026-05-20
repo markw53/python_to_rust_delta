@@ -1,18 +1,17 @@
 {
-  "instance_id": "sycamore__python_to_rust_filesystem_delta_001",
+  "instance_id": "sycamore__python_to_rust_filesystem_delta",
   "pipeline": "sycamore",
   "task_type": "repository_translation",
   "repo": {
-    "image_name": "micro1ai/sycamore-fsdelta:task001",
+    "image_name": "micro1ai/sycamore-python-to-rust-delta:latest",
     "repo_dir": "/source"
   },
   "target": {
     "language": "rust",
-    "rust_version": "1.76",
     "repo_dir": "/target"
   },
-  "language_pair": "python-to-rust",
-  "direction": "dynamic-to-typed",
+  "language_pair": "python_to_rust",
+  "direction": "Python to Rust",
   "difficulty_band": "medium",
   "title": "Translate filesystem delta tool from Python to Rust",
   "build_cmd": "cd /target && cargo build --quiet",
@@ -71,6 +70,5 @@
     "test_integration_edge_cases.py::test_patch_stability"
   ],
   "PASS_TO_PASS": [],
-  "expected_test_count": 72,
   "golden_repo": "golden_repo"
 }
