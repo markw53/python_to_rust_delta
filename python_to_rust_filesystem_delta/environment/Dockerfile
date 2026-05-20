@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-setuptools \
     libssl-dev && \
-    pip3 install pytest
+    pip3 install --break-system-packages pytest
 
 # Create required directories
 RUN mkdir -p /source /target /logs/verifier
