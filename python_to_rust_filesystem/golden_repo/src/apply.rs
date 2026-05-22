@@ -1,91 +1,82 @@
-use crate::delta::PatchOp;
-use anyhow::{Context, Result};
-use filetime::FileTime;
+use crate::patchop::PatchOp;
 use std::fs;
-use std::io::Write;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::io;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-pub fn apply_patch(root: &str, ops: Vec<PatchOp>) -> Result<()> {
+fn remove_if_exists(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(md) => {
+            if md.file_type().is_dir() {
+                fs::remove_dir_all(path)?;
+            } else {
+                fs::remove_file(path)?;
+            }
+        }
+        Err(_) => {}
+    }
+    Ok(())
+}
+
+fn apply_metadata(path: &Path, mode: Option<u32>, mtime: Option<u64>) -> io::Result<()> {
+    if let Some(m) = mode {
+        let mut perms = fs::metadata(path)?.permissions();
+        perms.set_mode(m);
+        fs::set_permissions(path, perms)?;
+    }
+
+    if let Some(t) = mtime {
+        let atime = fs::metadata(path)?.atime() as u64;
+        filetime::set_file_times(
+            path,
+            filetime::FileTime::from_unix_time(t as i64, 0),
+            filetime::FileTime::from_unix_time(atime as i64, 0),
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn apply_patch(root: &str, ops: Vec<PatchOp>) -> io::Result<()> {
+    let root = PathBuf::from(root);
+
     for op in ops {
-        let full = PathBuf::from(root).join(&op.path);
+        let mut rel = op.path.as_str();
+        rel = rel.trim_start_matches('/');
+        rel = rel.trim_start_matches("./");
+
+        let full = root.join(rel);
 
         match op.op.as_str() {
-            "create_dir" => {
-                fs::create_dir_all(&full)
-                    .with_context(|| format!("Failed to create dir {:?}", full))?;
-            }
-
-            "delete_dir" => {
-                if full.exists() {
-                    fs::remove_dir_all(&full)
-                        .with_context(|| format!("Failed to delete dir {:?}", full))?;
-                }
-            }
-
             "create_file" => {
-                if let Some(parent) = full.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                let mut f = fs::File::create(&full)
-                    .with_context(|| format!("Failed to create file {:?}", full))?;
-                if let Some(hash) = &op.hash {
-                    // Python version writes empty file; content is not stored in patch
-                    // So we do the same: empty file, hash is informational
-                    let _ = hash;
-                }
-                f.flush()?;
-            }
-
-            "delete_file" => {
-                if full.exists() {
-                    fs::remove_file(&full)
-                        .with_context(|| format!("Failed to delete file {:?}", full))?;
-                }
+                remove_if_exists(&full)?;
+                fs::write(&full, op.contents.unwrap_or_default())?;
+                apply_metadata(&full, op.mode, op.mtime)?;
             }
 
             "modify_file" => {
-                // Same as create_file: overwrite with empty file
-                if let Some(parent) = full.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                let mut f = fs::File::create(&full)
-                    .with_context(|| format!("Failed to modify file {:?}", full))?;
-                let _ = op.hash; // informational only
-                f.flush()?;
+                remove_if_exists(&full)?;
+                fs::write(&full, op.contents.unwrap_or_default())?;
+                apply_metadata(&full, op.mode, op.mtime)?;
             }
 
-            "chmod" => {
-                if let Some(mode) = op.mode {
-                    let mut perms = fs::metadata(&full)?.permissions();
-                    perms.set_mode(mode);
-                    fs::set_permissions(&full, perms)?;
-                }
+            "create_dir" => {
+                remove_if_exists(&full)?;
+                fs::create_dir_all(&full)?;
+                apply_metadata(&full, op.mode, op.mtime)?;
             }
 
-            "utimes" => {
-                if let Some(mtime) = op.mtime {
-                    let ft = FileTime::from_unix_time(mtime as i64, 0);
-                    filetime::set_file_mtime(&full, ft)?;
-                }
+            "create_symlink" => {
+                remove_if_exists(&full)?;
+                std::os::unix::fs::symlink(op.target.unwrap(), &full)?;
+                apply_metadata(&full, op.mode, op.mtime)?;
             }
 
-            "symlink" => {
-                if full.exists() {
-                    fs::remove_file(&full).ok();
-                }
-                if let Some(parent) = full.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                let target = op.target.clone().unwrap_or_default();
-                symlink(&target, &full).with_context(|| {
-                    format!("Failed to create symlink {:?} -> {:?}", full, target)
-                })?;
+            "delete" => {
+                remove_if_exists(&full)?;
             }
 
-            other => {
-                return Err(anyhow::anyhow!("Unknown op: {}", other));
-            }
+            other => panic!("unknown op {}", other),
         }
     }
 

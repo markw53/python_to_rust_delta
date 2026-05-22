@@ -1,5 +1,6 @@
 use filesystem_delta::{create_snapshot, compute_delta};
 use std::fs;
+use std::path::Path;
 
 #[test]
 fn test_create_file() {

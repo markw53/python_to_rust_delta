@@ -1,5 +1,7 @@
 use filesystem_delta::{apply_patch, compute_delta, create_snapshot};
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 
 #[test]
 fn test_apply_chmod() {

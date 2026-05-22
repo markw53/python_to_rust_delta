@@ -45,7 +45,7 @@ fn test_symlink_loop() {
     assert!(snap
         .entries
         .iter()
-        .any(|e| e.file_type.to_string().contains("Symlink")));
+        .any(|e| format!("{:?}", e.file_type).contains("Symlink")));
 
     fs::remove_file("d/loop").unwrap();
     fs::remove_dir("d").unwrap();

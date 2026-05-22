@@ -1,204 +1,106 @@
-use crate::snapshot::{Snapshot, SnapshotEntry};
 use crate::filetypes::FileType;
-use serde::{Serialize, Deserialize};
-use std::collections::BTreeMap;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PatchOp {
-    pub op: String,
-    pub path: String,
-    pub hash: Option<String>,
-    pub mode: Option<u32>,
-    pub mtime: Option<u64>,
-    pub target: Option<String>,
-}
-
-fn index_snapshot(snap: &Snapshot) -> BTreeMap<String, &SnapshotEntry> {
-    let mut map = BTreeMap::new();
-    for e in &snap.entries {
-        map.insert(e.path.clone(), e);
-    }
-    map
-}
+use crate::patchop::PatchOp;
+use crate::snapshot::{Snapshot, SnapshotEntry};
 
 pub fn compute_delta(src: Snapshot, dst: Snapshot) -> Vec<PatchOp> {
-    let src_map = index_snapshot(&src);
-    let dst_map = index_snapshot(&dst);
+    let mut ops = Vec::new();
 
-    let mut ops: Vec<PatchOp> = Vec::new();
+    let src_map = src
+        .entries
+        .into_iter()
+        .map(|e| (e.path.clone(), e))
+        .collect::<std::collections::HashMap<_, _>>();
+    let dst_map = dst
+        .entries
+        .into_iter()
+        .map(|e| (e.path.clone(), e))
+        .collect::<std::collections::HashMap<_, _>>();
 
-    // Deletions and modifications
-    for (path, src_e) in &src_map {
-        match dst_map.get(path) {
-            None => {
-                // delete
-                match src_e.file_type {
-                    FileType::File | FileType::Symlink => ops.push(PatchOp {
-                        op: "delete_file".to_string(),
-                        path: path.clone(),
-                        hash: None,
-                        mode: None,
-                        mtime: None,
-                        target: None,
-                    }),
-                    FileType::Directory => ops.push(PatchOp {
-                        op: "delete_dir".to_string(),
-                        path: path.clone(),
-                        hash: None,
-                        mode: None,
-                        mtime: None,
-                        target: None,
-                    }),
-                }
-            }
-            Some(dst_e) => {
-                // type change
-                if src_e.file_type != dst_e.file_type {
-                    // delete old
-                    match src_e.file_type {
-                        FileType::File | FileType::Symlink => ops.push(PatchOp {
-                            op: "delete_file".to_string(),
+    // Deletions + modifications
+    for (path, s) in src_map.iter() {
+        if let Some(d) = dst_map.get(path) {
+            match (&s.file_type, &d.file_type) {
+                (FileType::File, FileType::File) => {
+                    if s.contents != d.contents {
+                        ops.push(PatchOp {
+                            op: "modify_file".into(),
                             path: path.clone(),
-                            hash: None,
-                            mode: None,
-                            mtime: None,
+                            contents: d.contents.clone(),
                             target: None,
-                        }),
-                        FileType::Directory => ops.push(PatchOp {
-                            op: "delete_dir".to_string(),
-                            path: path.clone(),
-                            hash: None,
-                            mode: None,
-                            mtime: None,
-                            target: None,
-                        }),
-                    }
-                    // create new
-                    match dst_e.file_type {
-                        FileType::File => ops.push(PatchOp {
-                            op: "create_file".to_string(),
-                            path: path.clone(),
-                            hash: dst_e.hash.clone(),
-                            mode: None,
-                            mtime: None,
-                            target: None,
-                        }),
-                        FileType::Directory => ops.push(PatchOp {
-                            op: "create_dir".to_string(),
-                            path: path.clone(),
-                            hash: None,
-                            mode: None,
-                            mtime: None,
-                            target: None,
-                        }),
-                        FileType::Symlink => ops.push(PatchOp {
-                            op: "symlink".to_string(),
-                            path: path.clone(),
-                            hash: None,
-                            mode: None,
-                            mtime: None,
-                            target: dst_e.target.clone(),
-                        }),
-                    }
-                } else {
-                    // same type → check content/metadata
-                    match src_e.file_type {
-                        FileType::File => {
-                            if src_e.hash != dst_e.hash {
-                                ops.push(PatchOp {
-                                    op: "modify_file".to_string(),
-                                    path: path.clone(),
-                                    hash: dst_e.hash.clone(),
-                                    mode: None,
-                                    mtime: None,
-                                    target: None,
-                                });
-                            }
-                        }
-                        FileType::Symlink => {
-                            if src_e.target != dst_e.target {
-                                ops.push(PatchOp {
-                                    op: "symlink".to_string(),
-                                    path: path.clone(),
-                                    hash: None,
-                                    mode: None,
-                                    mtime: None,
-                                    target: dst_e.target.clone(),
-                                });
-                            }
-                        }
-                        FileType::Directory => {}
-                    }
-
-                    // chmod
-                    if src_e.mode != dst_e.mode {
-                        if let Some(mode) = dst_e.mode {
-                            ops.push(PatchOp {
-                                op: "chmod".to_string(),
-                                path: path.clone(),
-                                hash: None,
-                                mode: Some(mode),
-                                mtime: None,
-                                target: None,
-                            });
-                        }
-                    }
-
-                    // utimes
-                    if src_e.mtime != dst_e.mtime {
-                        if let Some(mtime) = dst_e.mtime {
-                            ops.push(PatchOp {
-                                op: "utimes".to_string(),
-                                path: path.clone(),
-                                hash: None,
-                                mode: None,
-                                mtime: Some(mtime),
-                                target: None,
-                            });
-                        }
+                            mode: d.mode,
+                            mtime: d.mtime,
+                        });
                     }
                 }
+                (FileType::Directory, FileType::Directory) => {}
+                (FileType::Symlink, FileType::Symlink) => {
+                    if s.target != d.target {
+                        ops.push(PatchOp {
+                            op: "symlink".into(),
+                            path: path.clone(),
+                            target: d.target.clone(),
+                            contents: None,
+                            mode: d.mode,
+                            mtime: d.mtime,
+                        });
+                    }
+                }
+                _ => {
+                    ops.push(delete_op(path));
+                    ops.push(create_from_entry(d));
+                }
             }
+        } else {
+            ops.push(delete_op(path));
         }
     }
 
     // Creations
-    for (path, dst_e) in &dst_map {
+    for (path, d) in dst_map.iter() {
         if !src_map.contains_key(path) {
-            match dst_e.file_type {
-                FileType::File => ops.push(PatchOp {
-                    op: "create_file".to_string(),
-                    path: path.clone(),
-                    hash: dst_e.hash.clone(),
-                    mode: None,
-                    mtime: None,
-                    target: None,
-                }),
-                FileType::Directory => ops.push(PatchOp {
-                    op: "create_dir".to_string(),
-                    path: path.clone(),
-                    hash: None,
-                    mode: None,
-                    mtime: None,
-                    target: None,
-                }),
-                FileType::Symlink => ops.push(PatchOp {
-                    op: "symlink".to_string(),
-                    path: path.clone(),
-                    hash: None,
-                    mode: None,
-                    mtime: None,
-                    target: dst_e.target.clone(),
-                }),
-            }
+            ops.push(create_from_entry(d));
         }
     }
 
-    // Deterministic ordering: by path, then op
-    ops.sort_by(|a, b| match a.path.cmp(&b.path) {
-        std::cmp::Ordering::Equal => a.op.cmp(&b.op),
-        other => other,
-    });
-
     ops
+}
+
+fn delete_op(path: &str) -> PatchOp {
+    PatchOp {
+        op: "delete_file".into(),
+        path: path.into(),
+        contents: None,
+        target: None,
+        mode: None,
+        mtime: None,
+    }
+}
+
+fn create_from_entry(e: &SnapshotEntry) -> PatchOp {
+    match e.file_type {
+        FileType::File => PatchOp {
+            op: "file".into(),
+            path: e.path.clone(),
+            contents: e.contents.clone(),
+            target: None,
+            mode: e.mode,
+            mtime: e.mtime,
+        },
+        FileType::Directory => PatchOp {
+            op: "mkdir".into(),
+            path: e.path.clone(),
+            contents: None,
+            target: None,
+            mode: e.mode,
+            mtime: e.mtime,
+        },
+        FileType::Symlink => PatchOp {
+            op: "symlink".into(),
+            path: e.path.clone(),
+            target: e.target.clone(),
+            contents: None,
+            mode: e.mode,
+            mtime: e.mtime,
+        },
+    }
 }

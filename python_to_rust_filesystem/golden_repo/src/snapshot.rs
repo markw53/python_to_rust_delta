@@ -1,22 +1,18 @@
 use crate::filetypes::FileType;
-use crate::hasher::sha256_file;
-use crate::metadata::{extract_mode, extract_mtime};
-use crate::paths::normalize_path;
-use crate::symlinks::read_symlink;
-use crate::walker::walk;
-
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotEntry {
     pub path: String,
     pub file_type: FileType,
-    pub hash: Option<String>,
+    pub contents: Option<Vec<u8>>,
+    pub target: Option<String>,
     pub mode: Option<u32>,
     pub mtime: Option<u64>,
-    pub target: Option<String>,
+    pub hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,60 +22,78 @@ pub struct Snapshot {
 
 pub fn create_snapshot(root: &str) -> Snapshot {
     let mut entries = Vec::new();
+    let root_path = PathBuf::from(root);
 
-    let paths = walk(root);
+    for entry in walk(&root_path) {
+        let rel = entry
+            .strip_prefix(&root_path)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let md = fs::symlink_metadata(&entry).unwrap();
+        let mode = Some(md.mode());
+        let mtime = Some(md.mtime() as u64);
 
-    for full_path in paths {
-        // Skip the root directory itself
-        if full_path == PathBuf::from(root) {
-            continue;
+        if md.file_type().is_symlink() {
+            let target = fs::read_link(&entry).unwrap().to_string_lossy().to_string();
+            entries.push(SnapshotEntry {
+                path: rel,
+                file_type: FileType::Symlink,
+                contents: None,
+                target: Some(target),
+                mode,
+                mtime,
+                hash: None,
+            });
+        } else if md.is_dir() {
+            entries.push(SnapshotEntry {
+                path: rel,
+                file_type: FileType::Directory,
+                contents: None,
+                target: None,
+                mode,
+                mtime,
+                hash: None,
+            });
+        } else {
+            let contents = fs::read(&entry).unwrap();
+            let hash = Some(crate::hasher::sha256_file(entry.to_string_lossy().as_ref()).unwrap());
+
+            entries.push(SnapshotEntry {
+                path: rel,
+                file_type: FileType::File,
+                contents: Some(contents),
+                target: None,
+                mode,
+                mtime,
+                hash,
+            });
         }
-
-        let rel = full_path.strip_prefix(root).unwrap();
-        let rel_str = normalize_path(rel);
-
-        let meta = match fs::symlink_metadata(&full_path) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        let file_type = if meta.is_file() {
-            FileType::File
-        } else if meta.is_dir() {
-            FileType::Directory
-        } else if meta.file_type().is_symlink() {
-            FileType::Symlink
-        } else {
-            continue;
-        };
-
-        let hash = if file_type == FileType::File {
-            sha256_file(full_path.to_string_lossy().as_ref()).ok()
-        } else {
-            None
-        };
-
-        let target = if file_type == FileType::Symlink {
-            read_symlink(&full_path)
-        } else {
-            None
-        };
-
-        let mode = extract_mode(&meta);
-        let mtime = extract_mtime(&meta);
-
-        entries.push(SnapshotEntry {
-            path: rel_str,
-            file_type,
-            hash,
-            mode,
-            mtime,
-            target,
-        });
     }
 
-    // Deterministic ordering
-    entries.sort_by(|a, b| a.path.cmp(&b.path));
-
     Snapshot { entries }
+}
+
+fn walk(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if !root.exists() {
+        return out;
+    }
+
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(path) = stack.pop() {
+        out.push(path.clone());
+
+        if path.is_dir() {
+            if let Ok(read) = fs::read_dir(&path) {
+                for entry in read.flatten() {
+                    stack.push(entry.path());
+                }
+            }
+        }
+    }
+
+    out.sort();
+    out
 }

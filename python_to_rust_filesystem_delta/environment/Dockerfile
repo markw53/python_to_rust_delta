@@ -11,4 +11,6 @@ RUN apt-get update && apt-get install -y \
 # Create required directories
 RUN mkdir -p /source /target /logs/verifier
 
+RUN useradd -ms /bin/bash dev
+USER dev
 WORKDIR /workspace

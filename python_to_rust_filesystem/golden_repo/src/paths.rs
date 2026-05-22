@@ -1,11 +1,19 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-pub fn normalize_path(path: &Path) -> String {
-    let mut p = PathBuf::new();
+pub fn normalize_path<P: AsRef<Path>>(p: P) -> String {
+    let p = p.as_ref().to_string_lossy();
 
-    for part in path.components() {
-        p.push(part.as_os_str());
+    let mut parts = Vec::new();
+
+    for part in p.split('/') {
+        match part {
+            "" | "." => continue,
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
     }
 
-    p.to_string_lossy().replace('\\', "/")
+    parts.join("/")
 }

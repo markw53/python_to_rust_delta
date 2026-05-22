@@ -16,8 +16,33 @@ __pycache__/
 # Node
 node_modules/
 
+# Rust
+target/
+
+# Editors
+.vscode/
+.idea/
+
 # Secrets
 .env
+
+# Sycamore test output
+tmp/
+tmp_*/
+
+# Generated delta artifacts
+snapshot.json
+patch.json
+
+# Archives
+*.tar.gz
+*.zip
+
+# Logs / temp
+*.log
+*.bak
+*.tmp
+*~
 
 # Harbor
 dist.tar.gz

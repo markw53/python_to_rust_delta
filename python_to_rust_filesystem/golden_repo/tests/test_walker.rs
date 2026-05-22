@@ -1,4 +1,4 @@
-// TODO: implement testsuse filesystem_delta::walker::walk;
+use filesystem_delta::walker::walk;
 use std::fs;
 
 #[test]
